@@ -22,6 +22,17 @@ def db_url(table):
     return f"{base}/rest/v1/{table}"
 
 
+def month_bounds(month):
+    """Returns (start, end) date strings for a YYYY-MM month."""
+    year, mon = month.split("-")
+    next_mon = int(mon) + 1
+    next_year = int(year)
+    if next_mon > 12:
+        next_mon = 1
+        next_year += 1
+    return f"{month}-01", f"{next_year}-{next_mon:02d}-01"
+
+
 @app.route("/api/health")
 def health():
     return jsonify({
@@ -35,24 +46,23 @@ def health():
 def get_expenses():
     month = request.args.get("month")
     category = request.args.get("category")
-    params = {"select": "*", "order": "date.desc"}
+
+    # Build query string manually for correct PostgREST syntax
+    query_params = [("select", "*"), ("order", "date.desc")]
 
     if month:
-        year, mon = month.split("-")
-        next_mon = int(mon) + 1
-        next_year = int(year)
-        if next_mon > 12:
-            next_mon = 1
-            next_year += 1
-        upper = f"{next_year}-{next_mon:02d}-01"
-        params["date"] = f"gte.{month}-01"
-        params["and"] = f"(date.lt.{upper})"
+        start, end = month_bounds(month)
+        query_params.append(("date", f"gte.{start}"))
+        query_params.append(("date", f"lt.{end}"))
 
     if category and category != "All":
-        params["category"] = f"eq.{category}"
+        query_params.append(("category", f"eq.{category}"))
 
-    r = httpx.get(db_url("expenses"), headers=get_headers(), params=params)
-    return jsonify(r.json()), r.status_code if r.status_code not in (200, 206) else 200
+    r = httpx.get(db_url("expenses"), headers=get_headers(), params=query_params)
+    data = r.json()
+    if not isinstance(data, list):
+        return jsonify([]), 200
+    return jsonify(data), 200
 
 
 @app.route("/api/expenses", methods=["POST"])
@@ -75,10 +85,10 @@ def create_expense():
 
 @app.route("/api/expenses/<expense_id>", methods=["DELETE"])
 def delete_expense(expense_id):
-    r = httpx.delete(
+    httpx.delete(
         db_url("expenses"),
         headers=get_headers(),
-        params={"id": f"eq.{expense_id}"}
+        params=[("id", f"eq.{expense_id}")]
     )
     return jsonify({"success": True}), 200
 
@@ -86,20 +96,14 @@ def delete_expense(expense_id):
 @app.route("/api/stats", methods=["GET"])
 def get_stats():
     month = request.args.get("month")
-    params = {"select": "amount,category"}
+    query_params = [("select", "amount,category")]
 
     if month:
-        year, mon = month.split("-")
-        next_mon = int(mon) + 1
-        next_year = int(year)
-        if next_mon > 12:
-            next_mon = 1
-            next_year += 1
-        upper = f"{next_year}-{next_mon:02d}-01"
-        params["date"] = f"gte.{month}-01"
-        params["and"] = f"(date.lt.{upper})"
+        start, end = month_bounds(month)
+        query_params.append(("date", f"gte.{start}"))
+        query_params.append(("date", f"lt.{end}"))
 
-    r = httpx.get(db_url("expenses"), headers=get_headers(), params=params)
+    r = httpx.get(db_url("expenses"), headers=get_headers(), params=query_params)
     expenses = r.json()
 
     if not isinstance(expenses, list):
