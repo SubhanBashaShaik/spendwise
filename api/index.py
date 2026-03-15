@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from mangum import Mangum
 from supabase import create_client, Client
 import os
 from typing import Optional
@@ -120,5 +119,3 @@ async def get_stats(month: Optional[str] = None):
     }
 
 
-# Vercel serverless handler
-handler = Mangum(app, lifespan="off")
